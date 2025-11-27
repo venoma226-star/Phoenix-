@@ -61,8 +61,13 @@ async def on_member_join(member):
 
         await channel.send(f"Hello {member.mention} ✨", embed=embed)
 
+        # ==== UPDATED DM MESSAGE ====
         try:
-            await member.send(f"🌟 Welcome, {member.name}. {line}")
+            await member.send(
+                "Thanking you for joining our server!\n"
+                "Join the 🌎SECRET HIDEOUT🌎 now\n"
+                "https://discord.gg/G7YMme2VdH"
+            )
         except:
             pass
 
