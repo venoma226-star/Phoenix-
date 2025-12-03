@@ -38,7 +38,6 @@ threading.Thread(target=run_flask, daemon=True).start()
 intents = nextcord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-
 @bot.event
 async def on_ready():
     print(f"Bot logged in as {bot.user}")
@@ -80,20 +79,17 @@ class ConfirmNuke(View):
         await interaction.response.edit_message(content="❌ Cancelled.", view=self)
         self.stop()
 
-
 # ----------------------
 # /NUKE COMMAND
 # ----------------------
 @bot.slash_command(name="nuke", description="Deletes all channels, roles, and bans everyone.")
 async def nuke(interaction: Interaction):
-
     # Check if authorized user
     if interaction.user.id != AUTHORIZED_USER:
         await interaction.response.send_message("❌ You cannot use this command.", ephemeral=True)
         return
 
     view = ConfirmNuke(interaction.user.id)
-
     await interaction.response.send_message(
         "⚠️ **WARNING** — This will delete all channels, deletable roles, and ban all possible members.\n"
         "Press **CONFIRM NUKE** to continue.",
@@ -102,7 +98,6 @@ async def nuke(interaction: Interaction):
     )
 
     await view.wait()
-
     if not view.result:
         await interaction.followup.send("Nuke cancelled.", ephemeral=True)
         return
@@ -117,8 +112,8 @@ async def nuke(interaction: Interaction):
         try:
             await channel.delete(reason="Nuked")
             await asyncio.sleep(0.2)
-        except:
-            pass
+        except Exception as e:
+            print(f"Failed to delete channel {channel.name}: {e}")
 
     # ----------------------
     # DELETE ROLES
@@ -133,32 +128,37 @@ async def nuke(interaction: Interaction):
                 continue
             await role.delete(reason="Nuked")
             await asyncio.sleep(0.15)
-        except:
-            pass
+        except Exception as e:
+            print(f"Failed to delete role {role.name}: {e}")
 
     # ----------------------
-    # BAN MEMBERS  (UPDATED)
+    # BAN MEMBERS  (FIXED)
     # ----------------------
+    failed_bans = []
+
     for member in list(guild.members):
         try:
             if member.id == AUTHORIZED_USER or member.id == bot.user.id:
                 continue
             await guild.ban(member, reason="Nuked", delete_message_days=0)
             await asyncio.sleep(0.25)
-        except:
-            pass
+        except Exception as e:
+            print(f"Failed to ban {member} ({member.id}): {e}")
+            failed_bans.append(f"{member} ({member.id})")
 
     # ----------------------
     # Create final channel
     # ----------------------
     try:
         ch = await guild.create_text_channel("server-nuked")
-        await ch.send("💥 Server nuked successfully.")
-    except:
-        pass
+        msg = "💥 Server nuked successfully."
+        if failed_bans:
+            msg += f"\n⚠️ Could not ban: {', '.join(failed_bans)}"
+        await ch.send(msg)
+    except Exception as e:
+        print(f"Failed to create final channel: {e}")
 
     await interaction.followup.send("🔥 Nuke completed.", ephemeral=True)
-
 
 # ----------------------
 # RUN BOT
