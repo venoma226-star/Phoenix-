@@ -43,6 +43,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Bot logged in as {bot.user}")
 
+    try:
+        synced = await bot.sync_application_commands()
+        print(f"Slash commands synced: {len(synced)}")
+    except Exception as e:
+        print("Slash command sync error:", e)
 
 # ----------------------
 # CONFIRMATION BUTTON VIEW
