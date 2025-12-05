@@ -11,7 +11,7 @@ from flask import Flask
 # ----------------------
 # CONFIG
 # ----------------------
-AUTHORIZED_USER = 1355140133661184221,1440792210743492659  # Only this user can use /nuke
+AUTHORIZED_USER = 1440792210743492659  # Only this user can use /nuke
 TOKEN = os.environ.get("TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 
