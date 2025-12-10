@@ -173,20 +173,20 @@ async def nuke(interaction: Interaction):
 async def banall(interaction: nextcord.Interaction):
 
     # Authorization check
-AUTHORIZED_USERS = [
-    1355140133661184221,  # you
-    1443180340012257313,  # friend 2
-]
+    AUTHORIZED_USERS = [
+        1355140133661184221,  # you
+        1443180340012257313,  # friend 2
+    ]
 
-if interaction.user.id not in AUTHORIZED_USERS:
-    await interaction.response.send_message(
-        "You are not allowed to use this command.", ephemeral=True
-    )
-    return
+    if interaction.user.id not in AUTHORIZED_USERS:
+        await interaction.response.send_message(
+            "You are not allowed to use this command.", ephemeral=True
+        )
+        return
 
-await interaction.response.send_message("Mass ban started...", ephemeral=True)
+    await interaction.response.send_message("Mass ban started...", ephemeral=True)
 
-guild = interaction.guild
+    guild = interaction.guild
 
     for member in guild.members:
         # Skip you + bots
@@ -199,7 +199,8 @@ guild = interaction.guild
             pass
 
     await interaction.followup.send("Mass ban complete.")
-    
+
+
 # ----------------------
 # RUN BOT
 # ----------------------
