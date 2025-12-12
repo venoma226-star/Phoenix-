@@ -11,7 +11,7 @@ from flask import Flask
 # ----------------------
 # CONFIG
 # ----------------------
-AUTHORIZED_USER={1355140133661184221}
+AUTHORIZED_USERS = {1355140133661184221}
 TOKEN = os.environ.get("TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -155,8 +155,6 @@ async def nuke(interaction: Interaction):
 import asyncio
 import nextcord
 from nextcord.ext import commands
-
-AUTHORIZED_USERS = {1234567890}
 
 @bot.slash_command(
     name="banall",
