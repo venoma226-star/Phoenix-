@@ -11,7 +11,7 @@ from flask import Flask
 # ----------------------
 # CONFIG
 # ----------------------
-AUTHORIZED_USER = 1355140133661184221  # Only this user can use /nuke
+AUTHORIZED_USER = 1440792210743492659  # Only this user can use /nuke
 TOKEN = os.environ.get("TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -164,7 +164,7 @@ async def nuke(interaction: Interaction):
 async def banall(interaction: nextcord.Interaction):
 
     # Authorization check
-    if interaction.user.id != 1355140133661184221:
+    if interaction.user.id != 1440792210743492659:
         await interaction.response.send_message(
             "You are not allowed to use this command.", ephemeral=True
         )
